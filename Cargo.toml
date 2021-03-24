@@ -1,0 +1,16 @@
+[package]
+name = "cog"
+version = "0.1.0"
+authors = ["Max Mindlin <maxmindlin@gmail.com>"]
+edition = "2018"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[workspace]
+members = [
+	"src/lexer",
+	"src/parser",
+	"src/interpret"
+]
+
+[dependencies]
