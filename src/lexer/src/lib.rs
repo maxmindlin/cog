@@ -68,6 +68,18 @@ impl Lexer {
                     Token::new(TokenKind::Str, literal)
                 },
                 '_' => Token::new(TokenKind::LowDash, c.to_string()),
+                '&' => Token::new(TokenKind::And, c.to_string()),
+                '|' => match self.peek() {
+                    Some(pc) => match *pc {
+                        '>' => {
+                            let mut lit = '|'.to_string();
+                            lit.push(*self.next().unwrap());
+                            Token::new(TokenKind::Pipe, lit)
+                        },
+                        _ => Token::new(TokenKind::Or, '|'.to_string())
+                    },
+                    None => Token::new(TokenKind::Or, '|'.to_string())
+                },
                 _ if c.is_whitespace() => self.next_token(),
                 _ if c.is_numeric() => {
                     let lit = self.read_numeric();
@@ -146,13 +158,14 @@ mod tests {
     use test_case::test_case;
 
     #[test_case(
-        "let x = 1 =>",
+        "let x = 1 => |>",
         vec!(
             Token::new(Let, "let".into()),
             Token::new(Ident, "x".into()),
             Token::new(Assign, "=".into()),
             Token::new(Int, "1".into()),
             Token::new(Arrow, "=>".into()),
+            Token::new(Pipe, "|>".into()),
         ); "assignment"
     )]
     fn test_token(input: &str, exp: Vec<Token>) {

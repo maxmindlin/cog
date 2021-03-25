@@ -25,12 +25,14 @@ pub enum ExprKind {
     Boolean(bool),
     Ident(Identifier),
     Int(i64),
+    Str(String),
     If(Box<ExprKind>, Block, Block),
     Switch(Box<ExprKind>, Box<Vec<SwitchCase>>, Block),
     Prefix(TokenKind, Box<ExprKind>),
     Infix(TokenKind, Box<ExprKind>, Box<ExprKind>),
     Func(Vec<Identifier>, Block),
     Call(Box<ExprKind>, Box<Vec<ExprKind>>),
+    Chain(Box<Vec<ExprKind>>),
 }
 
 #[derive(Debug, PartialEq, Eq, Clone)]

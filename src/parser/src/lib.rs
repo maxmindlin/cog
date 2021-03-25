@@ -24,6 +24,8 @@ impl From<TokenKind> for Precedence {
     fn from(value: TokenKind) -> Self {
         use TokenKind::*;
         match value {
+            And => Self::Equals,
+            Or => Self::Equals,
             EQ => Self::Equals,
             NEQ => Self::Equals,
             LT => Self::LessGreater,
@@ -34,6 +36,7 @@ impl From<TokenKind> for Precedence {
             Asterisk => Self::Product,
             LParen => Self::Call,
             LBracket => Self::Index,
+            Pipe => Self::Index,
             _ => Self::Lowest,
         }
     }
@@ -51,6 +54,7 @@ fn map_prefix_fn(kind: &TokenKind) -> Option<PrefixParseFn> {
         Function => Some(Parser::parse_fn_expr),
         If => Some(Parser::parse_if_expr),
         Switch => Some(Parser::parse_switch_expr),
+        Str => Some(Parser::parse_str_literal),
         _ => None,
     }
 }
@@ -66,7 +70,10 @@ fn map_infix_fn(kind: &TokenKind) -> Option<InfixParseFn> {
         NEQ => Some(Parser::parse_infix),
         LT => Some(Parser::parse_infix),
         GT => Some(Parser::parse_infix),
+        And => Some(Parser::parse_infix),
+        Or => Some(Parser::parse_infix),
         LParen => Some(Parser::parse_call_expr),
+        Pipe => Some(Parser::parse_chain_expr),
         _ => None,
     }
 }
@@ -224,6 +231,10 @@ impl Parser {
         }
     }
 
+    fn parse_str_literal(&mut self) -> ParseResult<ExprKind> {
+        Ok(ExprKind::Str(self.curr.literal.clone()))
+    }
+
     fn parse_boolean(&mut self) -> ParseResult<ExprKind> {
         let val = self.curr.kind == TokenKind::True;
         Ok(ExprKind::Boolean(val))
@@ -311,6 +322,23 @@ impl Parser {
     fn parse_call_expr(&mut self, func: ExprKind) -> ParseResult<ExprKind> {
         let args = self.parse_expr_list(TokenKind::RParen)?;
         Ok(ExprKind::Call(Box::new(func), args))
+    }
+
+    fn parse_chain_expr(&mut self, first: ExprKind) -> ParseResult<ExprKind> {
+        let mut out = vec![first];
+        while self.peek.kind != TokenKind::EOF
+        {
+            self.next_token();
+            let id = self.parse_ident()?;
+            self.expect_peek(TokenKind::LParen)?;
+            let call = self.parse_call_expr(id)?;
+            out.push(call);
+            if self.peek.kind == TokenKind::Semicolon {
+                break;
+            }
+            self.next_token();
+        }
+        Ok(ExprKind::Chain(Box::new(out)))
     }
 
     fn parse_if_expr(&mut self) -> ParseResult<ExprKind> {

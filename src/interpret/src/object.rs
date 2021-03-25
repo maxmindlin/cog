@@ -19,6 +19,7 @@ pub enum EvalError {
 pub enum Object {
     Boolean(bool),
     Int(i64),
+    Str(String),
     Null,
     Error(EvalError),
     Return(Rc<Object>),

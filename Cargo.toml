@@ -14,3 +14,7 @@ members = [
 ]
 
 [dependencies]
+lexer = { path = "src/lexer" }
+parser = { path = "src/parser" }
+interpret = { path = "src/interpret" }
+rustyline = "8.0.0"

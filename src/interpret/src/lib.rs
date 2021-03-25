@@ -1,7 +1,7 @@
 mod env;
 mod object;
 
-use env::Env;
+pub use env::Env;
 use lexer::TokenKind;
 use object::{FuncLiteral, Object, EvalError};
 use parser::{ExprKind, Identifier, NodeKind, Program, StmtKind, Block};
@@ -91,6 +91,7 @@ fn eval_expr(expr: &ExprKind, env: EnvPointer) -> Rc<Object> {
         Boolean(b) => Rc::new(Object::Boolean(*b)),
         Int(i) => Rc::new(Object::Int(*i)),
         Ident(i) => eval_ident(i, env),
+        Str(s) => Rc::new(Object::Str(s.to_owned())),
         Infix(op, lhs, rhs) => {
             let elhs = return_error!(eval_expr(lhs, Rc::clone(&env)));
             let erhs = return_error!(eval_expr(rhs, Rc::clone(&env)));
@@ -133,6 +134,30 @@ fn eval_expr(expr: &ExprKind, env: EnvPointer) -> Rc<Object> {
                 }
             }
             eval_block(def, env)
+        }
+        Chain(calls) => {
+            let mut prev: Option<Rc<Object>> = None;
+            for c in calls.iter() {
+                match c {
+                    Call(fexpr, args) => {
+                        let func = return_error!(eval_expr(&fexpr, Rc::clone(&env)));
+                        let mut args = eval_exprs(&*args, Rc::clone(&env));
+                        if args.len() == 1 {
+                            let first = args.first().unwrap();
+                            if let Object::Error(_) = **first {
+                                return Rc::clone(first)
+                            }
+                        }
+                        if let Some(obj) = prev {
+                            args.insert(0, obj);
+                        }
+                        let chain_val = return_error!(apply_fn(&func, &args));
+                        prev = Some(chain_val);
+                    }
+                    _ => return Rc::new(Object::Error(EvalError::UnknownInfixOp)),
+                }
+            }
+            prev.unwrap()
         }
     }
 }
@@ -182,9 +207,18 @@ fn eval_ident(id: &Identifier, env: EnvPointer) -> Rc<Object> {
 fn eval_infix_expr(op: &TokenKind, lhs: &Object, rhs: &Object) -> Object {
     use Object::*;
     match (lhs, rhs, op) {
-        (Int(i), Int(j), _) => eval_int_infix(op, *i, *j),
         (_, _, TokenKind::EQ) => Boolean(lhs == rhs),
         (_, _, TokenKind::NEQ) => Boolean(lhs != rhs),
+        (_, _, TokenKind::And) => {
+            let res = is_truthy(lhs) && is_truthy(rhs);
+            Boolean(res)
+        },
+        (_, _, TokenKind::Or) => {
+            let res = is_truthy(lhs) || is_truthy(rhs);
+            Boolean(res)
+        },
+        (Str(s1), Str(s2), _) => eval_str_infix(op, &s1, &s2),
+        (Int(i), Int(j), _) => eval_int_infix(op, *i, *j),
         _ => Error(EvalError::UnknownInfixOp)
     }
 }
@@ -201,6 +235,15 @@ fn eval_int_infix(op: &TokenKind, i: i64, j: i64) -> Object {
         T::GT => Boolean(i > j),
         T::EQ => Boolean(i == j),
         T::NEQ => Boolean(i != j),
+        _ => Error(EvalError::UnknownInfixOp)
+    }
+}
+
+fn eval_str_infix(op: &TokenKind, s1: &str, s2: &str) -> Object {
+    use Object::*;
+    use TokenKind as T;
+    match op {
+        T::Plus => Str(s1.to_string() + s2),
         _ => Error(EvalError::UnknownInfixOp)
     }
 }
@@ -324,6 +367,10 @@ x;",
     #[test_case("true == false", Object::Boolean(false); "bool EQ bool")]
     #[test_case("4 == false", Object::Boolean(false); "int EQ bool")]
     #[test_case("4 * true", Object::Error(EvalError::UnknownInfixOp); "int MUL bool")]
+    #[test_case("4 & 3", Object::Boolean(true); "int AND int")]
+    #[test_case("4 & false", Object::Boolean(false); "int AND bool")]
+    #[test_case("4 | false", Object::Boolean(true); "int OR bool")]
+    #[test_case(r#""foo" + "bar""#, Object::Str("foobar".to_owned()); "str PLUS str")]
     fn test_infix_eval(input: &str, exp: Object) {
         assert_eq!(*get_eval_output(input), exp);
     }
@@ -371,6 +418,29 @@ x;",
         "assign switch expr"
     )]
     fn test_switch_eval(input: &str, exp: Object) {
+        assert_eq!(*get_eval_output(input), exp);
+    }
+
+    #[test_case("
+let a = fn(x) { x + 1 };
+let b = fn(x,y) { x + y };
+let c = fn(x) { x + 3 };
+a(1) |> b(2) |> c();",
+        Object::Int(7);
+        "basic fn chain"
+    )]
+    #[test_case("
+let a = fn(x) { x + 1 };
+let b = fn(x,y) { x + y };
+let c = fn(x) { x + 3 };
+let z = a(1)
+    |> b(2)
+    |> c();
+z + 2;",
+        Object::Int(9);
+        "assign fn chain"
+    )]
+    fn test_chain_eval(input: &str, exp: Object) {
         assert_eq!(*get_eval_output(input), exp);
     }
 }

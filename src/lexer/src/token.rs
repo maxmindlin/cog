@@ -15,6 +15,8 @@ pub enum TokenKind {
     Slash,
     EQ,
     NEQ,
+    Or,
+    And,
 
     LT,
     GT,
@@ -30,6 +32,7 @@ pub enum TokenKind {
     Colon,
     Arrow,
     LowDash,
+    Pipe,
 
     // Keywords
     Function,
