@@ -1,6 +1,6 @@
 mod ast;
 
-pub use ast::{ExprKind, Identifier, NodeKind, Program, StmtKind};
+pub use ast::{ExprKind, Identifier, NodeKind, Program, StmtKind, Block, SwitchCase};
 
 use lexer::{Lexer, Token, TokenKind};
 
@@ -44,6 +44,13 @@ fn map_prefix_fn(kind: &TokenKind) -> Option<PrefixParseFn> {
     match kind {
         Ident => Some(Parser::parse_ident),
         Int => Some(Parser::parse_int_literal),
+        True => Some(Parser::parse_boolean),
+        False => Some(Parser::parse_boolean),
+        Bang => Some(Parser::parse_prefix),
+        Minus => Some(Parser::parse_prefix),
+        Function => Some(Parser::parse_fn_expr),
+        If => Some(Parser::parse_if_expr),
+        Switch => Some(Parser::parse_switch_expr),
         _ => None,
     }
 }
@@ -51,6 +58,15 @@ fn map_prefix_fn(kind: &TokenKind) -> Option<PrefixParseFn> {
 fn map_infix_fn(kind: &TokenKind) -> Option<InfixParseFn> {
     use TokenKind::*;
     match kind {
+        Plus => Some(Parser::parse_infix),
+        Minus => Some(Parser::parse_infix),
+        Slash => Some(Parser::parse_infix),
+        Asterisk => Some(Parser::parse_infix),
+        EQ => Some(Parser::parse_infix),
+        NEQ => Some(Parser::parse_infix),
+        LT => Some(Parser::parse_infix),
+        GT => Some(Parser::parse_infix),
+        LParen => Some(Parser::parse_call_expr),
         _ => None,
     }
 }
@@ -110,8 +126,38 @@ impl Parser {
     fn parse_stmt(&mut self) -> ParseResult<StmtKind> {
         match self.curr.kind {
             TokenKind::Let => self.parse_let_stmt(),
+            TokenKind::Ident => {
+                match self.peek.kind {
+                    TokenKind::Assign => self.parse_assign_stmt(),
+                    _ => self.parse_expr_stmt(),
+                }
+            },
+            TokenKind::Return => self.parse_return_stmt(),
             _ => self.parse_expr_stmt(),
         }
+    }
+
+    fn parse_return_stmt(&mut self) -> ParseResult<StmtKind> {
+        self.next_token();
+        if self.curr.kind == TokenKind::Semicolon {
+            return Ok(StmtKind::Return(None));
+        }
+        let val = self.parse_expr(Precedence::Lowest)?;
+        if self.peek.kind == TokenKind::Semicolon {
+            self.next_token();
+        }
+        Ok(StmtKind::Return(Some(val)))
+    }
+
+    fn parse_assign_stmt(&mut self) -> ParseResult<StmtKind> {
+        let id = Identifier::new(self.curr.literal.clone());
+        self.expect_peek(TokenKind::Assign)?;
+        self.next_token();
+        let val = self.parse_expr(Precedence::Lowest)?;
+        if self.peek.kind == TokenKind::Semicolon {
+            self.next_token();
+        }
+        Ok(StmtKind::Assign(id, val))
     }
 
     fn parse_let_stmt(&mut self) -> ParseResult<StmtKind> {
@@ -122,7 +168,6 @@ impl Parser {
         // (ex: `let x;`). Consume semicolon token before
         // returning empty let stmt.
         if self.peek.kind == TokenKind::Semicolon {
-            self.next_token();
             self.next_token();
             return Ok(StmtKind::Let(id, None));
         }
@@ -150,7 +195,8 @@ impl Parser {
             None => Err(ParseError::UnknownPrefix(self.curr.kind)),
             Some(f) => {
                 let mut lhs = f(self)?;
-                while self.peek.kind != TokenKind::Semicolon && precedence < self.peek_precedence()
+                while self.peek.kind != TokenKind::Semicolon
+                    && precedence < self.peek_precedence()
                 {
                     match map_infix_fn(&self.peek.kind) {
                         None => return Ok(lhs),
@@ -177,6 +223,146 @@ impl Parser {
             Err(_) => Err(ParseError::InvalidInt(to_parse)),
         }
     }
+
+    fn parse_boolean(&mut self) -> ParseResult<ExprKind> {
+        let val = self.curr.kind == TokenKind::True;
+        Ok(ExprKind::Boolean(val))
+    }
+
+    fn parse_prefix(&mut self) -> ParseResult<ExprKind> {
+        let op = self.curr.kind.clone();
+        self.next_token();
+        let rhs = self.parse_expr(Precedence::Prefix)?;
+        Ok(ExprKind::Prefix(op, Box::new(rhs)))
+    }
+
+    fn parse_infix(&mut self, lhs: ExprKind) -> ParseResult<ExprKind> {
+        let op = self.curr.kind.clone();
+        let precedence = self.curr_precedence();
+        self.next_token();
+        let rhs = self.parse_expr(precedence)?;
+        Ok(ExprKind::Infix(op, Box::new(lhs), Box::new(rhs)))
+    }
+
+    fn parse_fn_expr(&mut self) -> ParseResult<ExprKind> {
+        self.expect_peek(TokenKind::LParen)?;
+        let params = self.parse_fn_params()?;
+        self.expect_peek(TokenKind::LBrace)?;
+        let body = self.parse_block()?;
+        Ok(ExprKind::Func(params, body))
+    }
+
+    fn parse_fn_params(&mut self) -> ParseResult<Vec<Identifier>> {
+        let mut params = Vec::new();
+        if self.peek.kind == TokenKind::RParen {
+            self.next_token();
+            return Ok(params);
+        }
+
+        self.next_token();
+        params.push(Identifier::new(self.curr.literal.clone()));
+        while self.peek.kind == TokenKind::Comma {
+            self.next_token();
+            self.next_token();
+            params.push(Identifier::new(self.curr.literal.clone()));
+        }
+
+        self.expect_peek(TokenKind::RParen)?;
+        Ok(params)
+    }
+
+    fn parse_block(&mut self) -> ParseResult<Block> {
+        let mut stmts: Vec<StmtKind> = Vec::new();
+        self.next_token();
+
+        while self.curr.kind != TokenKind::RBrace
+            && self.curr.kind != TokenKind::EOF
+        {
+            let stmt = self.parse_stmt()?;
+            stmts.push(stmt);
+            self.next_token();
+        }
+
+        Ok(Block::new(stmts))
+    }
+
+    fn parse_expr_list(&mut self, end: TokenKind) -> ParseResult<Box<Vec<ExprKind>>> {
+        let mut args: Vec<ExprKind> = Vec::new();
+        if self.peek.kind == end {
+            self.next_token();
+            return Ok(Box::new(args));
+        }
+
+        self.next_token();
+        let expr = self.parse_expr(Precedence::Lowest)?;
+        args.push(expr);
+
+        while self.peek.kind == TokenKind::Comma {
+            self.next_token();
+            self.next_token();
+            let e = self.parse_expr(Precedence::Lowest)?;
+            args.push(e);
+        }
+
+        self.expect_peek(end)?;
+        Ok(Box::new(args))
+    }
+
+    fn parse_call_expr(&mut self, func: ExprKind) -> ParseResult<ExprKind> {
+        let args = self.parse_expr_list(TokenKind::RParen)?;
+        Ok(ExprKind::Call(Box::new(func), args))
+    }
+
+    fn parse_if_expr(&mut self) -> ParseResult<ExprKind> {
+        self.expect_peek(TokenKind::LParen)?;
+        self.next_token();
+        let cond = self.parse_expr(Precedence::Lowest)?;
+        self.expect_peek(TokenKind::RParen)?;
+        self.expect_peek(TokenKind::LBrace)?;
+        let conseq = self.parse_block()?;
+        let mut alt = Block::default();
+        if self.peek.kind == TokenKind::Else {
+            self.next_token();
+            self.expect_peek(TokenKind::LBrace)?;
+            alt = self.parse_block()?;
+        }
+        Ok(ExprKind::If(Box::new(cond), conseq, alt))
+    }
+
+    fn parse_switch_expr(&mut self) -> ParseResult<ExprKind> {
+        self.expect_peek(TokenKind::LParen)?;
+        self.next_token();
+        let cond = self.parse_expr(Precedence::Lowest)?;
+        self.expect_peek(TokenKind::RParen)?;
+        self.expect_peek(TokenKind::LBrace)?;
+
+        let mut cases: Vec<SwitchCase> = Vec::new();
+        while self.peek.kind != TokenKind::RBrace
+            && self.peek.kind != TokenKind::EOF
+            && self.peek.kind != TokenKind::LowDash
+        {
+            self.expect_peek(TokenKind::LParen)?;
+            self.next_token();
+            let case = self.parse_expr(Precedence::Lowest)?;
+            self.expect_peek(TokenKind::RParen)?;
+            self.expect_peek(TokenKind::Arrow)?;
+            self.expect_peek(TokenKind::LBrace)?;
+            let conseq = self.parse_block()?;
+            let scase = SwitchCase::new(case, conseq);
+            cases.push(scase);
+        }
+
+        let mut def = Block::default();
+        if self.peek.kind == TokenKind::LowDash {
+            self.next_token();
+            self.expect_peek(TokenKind::Arrow)?;
+            self.expect_peek(TokenKind::LBrace)?;
+            def = self.parse_block()?;
+        }
+        self.expect_peek(TokenKind::RBrace)?;
+
+        Ok(ExprKind::Switch(Box::new(cond), Box::new(cases), def))
+    }
 }
 
 #[cfg(test)]
@@ -189,6 +375,26 @@ mod tests {
         Parser::new(l)
     }
 
+    fn get_single_output(input: &str) -> StmtKind {
+        let prgm = setup_parser(input).parse_program().unwrap();
+        assert_eq!(prgm.stmts.len(), 1);
+        let stmt = &prgm.stmts[0];
+        stmt.clone()
+    }
+
+    fn assert_single_output(input: &str, exp: StmtKind) {
+        let stmt = get_single_output(input);
+        assert_eq!(stmt, exp);
+    }
+
+    fn assert_single_expr(input: &str, exp: ExprKind) {
+        let stmt = get_single_output(input);
+        match stmt {
+            StmtKind::Expr(e) => assert_eq!(e, exp),
+            _ => panic!("expected exprkind"),
+        }
+    }
+
     #[test_case(
         "let x = 1;",
         StmtKind::Let(
@@ -199,9 +405,151 @@ mod tests {
     )]
     #[test_case("let x;", StmtKind::Let(Identifier::new("x".into()), None); "empty")]
     fn test_parse_let(input: &str, exp: StmtKind) {
-        let prgm = setup_parser(input).parse_program().unwrap();
-        assert_eq!(prgm.stmts.len(), 1);
-        let stmt = &prgm.stmts[0];
-        assert_eq!(*stmt, exp);
+        assert_single_output(input, exp);
+    }
+
+    #[test_case(
+        "x = 5;",
+        StmtKind::Assign(
+            Identifier::new("x".into()),
+            ExprKind::Int(5)
+        ); "int assign"
+    )]
+    #[test_case(
+        "x = false;",
+        StmtKind::Assign(
+            Identifier::new("x".into()),
+            ExprKind::Boolean(false)
+        ); "boolean assign"
+    )]
+    #[test_case(
+        "x = y;",
+        StmtKind::Assign(
+            Identifier::new("x".into()),
+            ExprKind::Ident(Identifier::new("y".into()))
+        ); "ident assign"
+    )]
+    fn test_assign(input: &str, exp: StmtKind) {
+        assert_single_output(input, exp);
+    }
+
+    #[test_case(
+        "return 5;",
+        StmtKind::Return(Some(ExprKind::Int(5)));
+        "return int"
+    )]
+    #[test_case(
+        "return false;",
+        StmtKind::Return(Some(ExprKind::Boolean(false)));
+        "return bool"
+    )]
+    #[test_case("return;", StmtKind::Return(None); "return null")]
+    fn test_return(input: &str, exp: StmtKind) {
+        assert_single_output(input, exp);
+    }
+
+    #[test_case(
+        "3 + 4;",
+        ExprKind::Infix(
+            TokenKind::Plus,
+            Box::new(ExprKind::Int(3)),
+            Box::new(ExprKind::Int(4)),
+        );
+        "basic plus infix"
+    )]
+    #[test_case(
+        "3 - 4;",
+        ExprKind::Infix(
+            TokenKind::Minus,
+            Box::new(ExprKind::Int(3)),
+            Box::new(ExprKind::Int(4)),
+        );
+        "basic minus infix"
+    )]
+    fn test_infix(input: &str, exp: ExprKind) {
+        assert_single_expr(input, exp);
+    }
+
+    #[test_case(
+        "fn (x, y) { 5 };",
+        StmtKind::Expr(
+            ExprKind::Func(
+                vec!(Identifier::new("x".into()), Identifier::new("y".into())),
+                Block::new(vec!(
+                    StmtKind::Expr(
+                        ExprKind::Int(5)
+                    )
+                ))
+            )
+        );
+        "basic fn"
+    )]
+    fn test_fn(input: &str, exp: StmtKind) {
+        assert_single_output(input, exp);
+    }
+
+    #[test_case(
+        "if (true) { 1 } else { 2 };",
+        ExprKind::If(
+            Box::new(ExprKind::Boolean(true)),
+            Block::new(vec!(StmtKind::Expr(ExprKind::Int(1)))),
+            Block::new(vec!(StmtKind::Expr(ExprKind::Int(2)))),
+        );
+        "basic full if"
+    )]
+    #[test_case(
+        "if (true) { 1 };",
+        ExprKind::If(
+            Box::new(ExprKind::Boolean(true)),
+            Block::new(vec!(StmtKind::Expr(ExprKind::Int(1)))),
+            Block::new(vec!()),
+        );
+        "if missing alt"
+    )]
+    fn test_if(input: &str, exp: ExprKind) {
+        assert_single_expr(input, exp);
+    }
+
+    #[test_case("
+switch (true) {
+    (1) => { 2 }
+}",
+        ExprKind::Switch(
+            Box::new(ExprKind::Boolean(true)),
+            Box::new(vec!(
+                SwitchCase::new(
+                    ExprKind::Int(1),
+                    Block::new(vec!(
+                            StmtKind::Expr(ExprKind::Int(2)),
+                    ))
+                )
+            )),
+            Block::default(),
+        );
+        "basic switch"
+    )]
+    #[test_case("
+switch (true) {
+    (1) => { 2 }
+    _ => { 3 }
+}",
+        ExprKind::Switch(
+            Box::new(ExprKind::Boolean(true)),
+            Box::new(vec!(
+                SwitchCase::new(
+                    ExprKind::Int(1),
+                    Block::new(vec!(
+                            StmtKind::Expr(ExprKind::Int(2)),
+                    ))
+                )
+            )),
+            Block::new(vec!(
+                StmtKind::Expr(ExprKind::Int(3)),
+            )),
+        );
+        "basic switch with default"
+    )]
+    fn test_switch(input: &str, exp: ExprKind) {
+        assert_single_expr(input, exp);
     }
 }

@@ -1,3 +1,5 @@
+use lexer::TokenKind;
+
 #[derive(Debug)]
 pub enum NodeKind {
     Program(Program),
@@ -10,20 +12,40 @@ pub struct Program {
     pub stmts: Vec<StmtKind>,
 }
 
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug, PartialEq, Eq, Clone)]
 pub enum StmtKind {
     Let(Identifier, Option<ExprKind>),
+    Assign(Identifier, ExprKind),
     Return(Option<ExprKind>),
     Expr(ExprKind),
 }
 
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug, PartialEq, Eq, Clone)]
 pub enum ExprKind {
+    Boolean(bool),
     Ident(Identifier),
     Int(i64),
+    If(Box<ExprKind>, Block, Block),
+    Switch(Box<ExprKind>, Box<Vec<SwitchCase>>, Block),
+    Prefix(TokenKind, Box<ExprKind>),
+    Infix(TokenKind, Box<ExprKind>, Box<ExprKind>),
+    Func(Vec<Identifier>, Block),
+    Call(Box<ExprKind>, Box<Vec<ExprKind>>),
 }
 
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug, PartialEq, Eq, Clone)]
+pub struct SwitchCase {
+    pub cond: ExprKind,
+    pub conseq: Block,
+}
+
+impl SwitchCase {
+    pub fn new(cond: ExprKind, conseq: Block) -> Self {
+        Self { cond, conseq }
+    }
+}
+
+#[derive(Debug, PartialEq, Eq, Clone)]
 pub struct Identifier {
     pub name: String,
 }
@@ -31,5 +53,16 @@ pub struct Identifier {
 impl Identifier {
     pub fn new(name: String) -> Self {
         Self { name }
+    }
+}
+
+#[derive(Debug, PartialEq, Eq, Clone, Default)]
+pub struct Block {
+    pub stmts: Vec<StmtKind>,
+}
+
+impl Block {
+    pub fn new(stmts: Vec<StmtKind>) -> Self {
+        Self { stmts }
     }
 }

@@ -28,6 +28,8 @@ pub enum TokenKind {
     LBracket,
     RBracket,
     Colon,
+    Arrow,
+    LowDash,
 
     // Keywords
     Function,
@@ -37,6 +39,7 @@ pub enum TokenKind {
     If,
     Else,
     Return,
+    Switch,
 }
 
 impl TokenKind {
@@ -50,6 +53,7 @@ impl TokenKind {
             "if" => Some(If),
             "else" => Some(Else),
             "return" => Some(Return),
+            "switch" => Some(Switch),
             _ => None,
         }
     }

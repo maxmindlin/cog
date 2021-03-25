@@ -21,8 +21,53 @@ impl Lexer {
         use TokenKind::*;
         match self.next() {
             Some(c) => match *c {
-                '=' => Token::new(Assign, c.to_string()),
-                ';' => Token::new(Semicolon, c.to_string()),
+                '=' => match self.peek() {
+                    Some(pc) => match *pc {
+                        '=' => {
+                            let mut lit = '='.to_string();
+                            lit.push(*self.next().unwrap());
+                            Token::new(TokenKind::EQ, lit)
+                        }
+                        '>' => {
+                            let mut lit = '='.to_string();
+                            lit.push(*self.next().unwrap());
+                            Token::new(TokenKind::Arrow, lit)
+                        }
+                        _ => Token::new(TokenKind::Assign, '='.to_string()),
+                    },
+                    None => Token::new(TokenKind::Assign, '='.to_string()),
+                },
+                ';' => Token::new(TokenKind::Semicolon, c.to_string()),
+                '(' => Token::new(TokenKind::LParen, c.to_string()),
+                ')' => Token::new(TokenKind::RParen, c.to_string()),
+                ',' => Token::new(TokenKind::Comma, c.to_string()),
+                '+' => Token::new(TokenKind::Plus, c.to_string()),
+                '{' => Token::new(TokenKind::LBrace, c.to_string()),
+                '}' => Token::new(TokenKind::RBrace, c.to_string()),
+                '[' => Token::new(TokenKind::LBracket, c.to_string()),
+                ']' => Token::new(TokenKind::RBracket, c.to_string()),
+                ':' => Token::new(TokenKind::Colon, c.to_string()),
+                '-' => Token::new(TokenKind::Minus, c.to_string()),
+                '!' => match self.peek() {
+                    Some(pc) => match *pc {
+                        '=' => {
+                            let mut lit = '!'.to_string();
+                            lit.push(*self.next().unwrap());
+                            Token::new(TokenKind::NEQ, lit)
+                        }
+                        _ => Token::new(TokenKind::Bang, '!'.to_string()),
+                    },
+                    _ => Token::new(TokenKind::Bang, '!'.to_string()),
+                },
+                '*' => Token::new(TokenKind::Asterisk, c.to_string()),
+                '/' => Token::new(TokenKind::Slash, c.to_string()),
+                '<' => Token::new(TokenKind::LT, c.to_string()),
+                '>' => Token::new(TokenKind::GT, c.to_string()),
+                '"' => {
+                    let literal = self.read_string();
+                    Token::new(TokenKind::Str, literal)
+                },
+                '_' => Token::new(TokenKind::LowDash, c.to_string()),
                 _ if c.is_whitespace() => self.next_token(),
                 _ if c.is_numeric() => {
                     let lit = self.read_numeric();
@@ -101,12 +146,13 @@ mod tests {
     use test_case::test_case;
 
     #[test_case(
-        "let x = 1",
+        "let x = 1 =>",
         vec!(
             Token::new(Let, "let".into()),
             Token::new(Ident, "x".into()),
             Token::new(Assign, "=".into()),
             Token::new(Int, "1".into()),
+            Token::new(Arrow, "=>".into()),
         ); "assignment"
     )]
     fn test_token(input: &str, exp: Vec<Token>) {

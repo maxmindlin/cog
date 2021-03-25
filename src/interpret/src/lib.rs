@@ -2,10 +2,27 @@ mod env;
 mod object;
 
 use env::Env;
-use object::Object;
-use parser::{NodeKind, StmtKind, ExprKind, Identifier, Program};
+use lexer::TokenKind;
+use object::{FuncLiteral, Object, EvalError};
+use parser::{ExprKind, Identifier, NodeKind, Program, StmtKind, Block};
 
-pub fn eval(node: NodeKind, env: &mut Env) -> Object {
+use std::cell::RefCell;
+use std::rc::Rc;
+
+pub(crate) type EnvPointer = Rc<RefCell<Env>>;
+
+// For exiting early if the evaluation of the given
+// expr is any variant of the Object::Error.
+macro_rules! return_error {
+    ($expr:expr) => {
+        match &*$expr {
+            $crate::object::Object::Error(_) => return $expr,
+            _ => $expr,
+        }
+    };
+}
+
+pub fn eval(node: NodeKind, env: EnvPointer) -> Rc<Object> {
     use NodeKind::*;
     match node {
         Program(p) => eval_program(p, env),
@@ -14,77 +31,346 @@ pub fn eval(node: NodeKind, env: &mut Env) -> Object {
     }
 }
 
-fn eval_program(prgm: Program, env: &mut Env) -> Object {
-    let mut res = Object::Null;
+fn eval_program(prgm: Program, env: EnvPointer) -> Rc<Object> {
+    let mut res = Rc::new(Object::Null);
     for stmt in prgm.stmts {
-        let val = eval(NodeKind::Stmt(stmt), env);
-        match val {
-            Object::Error => return val,
+        let val = eval(NodeKind::Stmt(stmt), Rc::clone(&env));
+        match &*val {
+            Object::Return(r) => return Rc::clone(r),
+            Object::Error(_) => return val,
             _ => res = val,
         }
     }
     res
 }
 
-fn eval_stmt(stmt: &StmtKind, env: &mut Env) -> Object {
+fn eval_stmt(stmt: &StmtKind, env: EnvPointer) -> Rc<Object> {
     use StmtKind::*;
     match stmt {
+        Assign(id, e) => {
+            // If you attempt to assign to a non-declared var,
+            // its an error.
+            if env.borrow().get(id).is_none() {
+                return Rc::new(Object::Error(EvalError::UnknownIdent));
+            }
+            let val = eval_expr(e, Rc::clone(&env));
+            env.borrow_mut().set(id, val);
+            Rc::new(Object::Null)
+        }
         Expr(e) => eval_expr(e, env),
         Return(rv) => match rv {
-            None => Object::Null,
+            None => Rc::new(Object::Null),
             Some(v) => {
-                let _val = eval_expr(v, env);
-                unimplemented!()
+                let obj = return_error!(eval_expr(v, Rc::clone(&env)));
+                Rc::new(Object::Return(obj))
             }
-        }
-        Let(id, exp) => match exp {
-            None => {
-                env.set(id, Object::Null);
-                Object::Null
+        },
+        Let(id, exp) => {
+            // if you attempt to declare a var twice, its an error.
+            if env.borrow().get(id).is_some() {
+                return Rc::new(Object::Error(EvalError::IdentExists));
             }
-            Some(e) => {
-                let val = eval_expr(e, env);
-                env.set(id, val);
-                Object::Null
+            match exp {
+                None => {
+                    env.borrow_mut().set(id, Rc::new(Object::Null));
+                    Rc::new(Object::Null)
+                }
+                Some(e) => {
+                    let val = eval_expr(e, Rc::clone(&env));
+                    env.borrow_mut().set(id, val);
+                    Rc::new(Object::Null)
+                }
             }
-        }
+        },
     }
 }
 
-fn eval_expr(expr: &ExprKind, env: &mut Env) -> Object {
+fn eval_expr(expr: &ExprKind, env: EnvPointer) -> Rc<Object> {
     use ExprKind::*;
     match expr {
-        Int(i) => Object::Int(*i),
+        Boolean(b) => Rc::new(Object::Boolean(*b)),
+        Int(i) => Rc::new(Object::Int(*i)),
         Ident(i) => eval_ident(i, env),
+        Infix(op, lhs, rhs) => {
+            let elhs = return_error!(eval_expr(lhs, Rc::clone(&env)));
+            let erhs = return_error!(eval_expr(rhs, Rc::clone(&env)));
+            Rc::new(eval_infix_expr(op, &elhs, &erhs))
+        }
+        If(cond, conseq, alt) => {
+            let val = eval_expr(cond, Rc::clone(&env));
+            match *val {
+                Object::Error(_) => val,
+                _ if is_truthy(&val) => eval_block(conseq,env),
+                _ => eval_block(alt, env),
+            }
+        }
+        Prefix(op, e) => {
+            let obj = return_error!(eval_expr(e, Rc::clone(&env)));
+            eval_prefix_expr(&op, obj)
+        }
+        Func(i, block) => Rc::new(Object::Func(Rc::new(FuncLiteral::new(
+            i.to_owned(),
+            block.to_owned(),
+            env,
+        )))),
+        Call(fexpr, args) => {
+            let func = return_error!(eval_expr(&fexpr, Rc::clone(&env)));
+            let args = eval_exprs(&*args, env);
+            if args.len() == 1 {
+                let first = args.first().unwrap();
+                if let Object::Error(_) = **first {
+                    return Rc::clone(first);
+                }
+            }
+            apply_fn(&func, &args)
+        }
+        Switch(cond, cases, def) => {
+            let val = eval_expr(cond, Rc::clone(&env));
+            for c in cases.iter() {
+                let to_compare = eval_expr(&c.cond, Rc::clone(&env));
+                if val == to_compare {
+                    return eval_block(&c.conseq, Rc::clone(&env));
+                }
+            }
+            eval_block(def, env)
+        }
     }
 }
 
-fn eval_ident(id: &Identifier, env: &mut Env) -> Object {
-    match env.get(id) {
-        Some(obj) => *obj,
-        None => Object::Error
+fn eval_exprs(exps: &Vec<ExprKind>, env: EnvPointer) -> Vec<Rc<Object>> {
+    let mut out = Vec::new();
+    for e in exps {
+        let eval = eval_expr(e, Rc::clone(&env));
+        match *eval {
+            Object::Error(_) => return vec![eval],
+            _ => out.push(eval),
+        }
+    }
+    out
+}
+
+fn apply_fn(func: &Object, args: &Vec<Rc<Object>>) -> Rc<Object> {
+    match func {
+        Object::Func(f_lit) => {
+            let env = extend_fn_env(f_lit, args);
+            let eval = eval_block(&f_lit.body, env);
+            match &*eval {
+                Object::Return(v) => Rc::clone(v),
+                _ => eval,
+            }
+        },
+        _ => Rc::new(Object::Error(EvalError::NonFunction))
+    }
+}
+
+fn extend_fn_env(func: &FuncLiteral, args: &Vec<Rc<Object>>) -> EnvPointer {
+    let mut to_extend = Env::new();
+    to_extend.add_outer(Rc::clone(&func.env));
+    for (i, param) in func.params.iter().enumerate() {
+        to_extend.set(param, Rc::clone(args.get(i).unwrap()));
+    }
+    Rc::new(RefCell::new(to_extend))
+}
+
+fn eval_ident(id: &Identifier, env: EnvPointer) -> Rc<Object> {
+    match env.borrow().get(id) {
+        Some(obj) => Rc::clone(&obj),
+        None => Rc::new(Object::Error(EvalError::UnknownIdent)),
+    }
+}
+
+fn eval_infix_expr(op: &TokenKind, lhs: &Object, rhs: &Object) -> Object {
+    use Object::*;
+    match (lhs, rhs, op) {
+        (Int(i), Int(j), _) => eval_int_infix(op, *i, *j),
+        (_, _, TokenKind::EQ) => Boolean(lhs == rhs),
+        (_, _, TokenKind::NEQ) => Boolean(lhs != rhs),
+        _ => Error(EvalError::UnknownInfixOp)
+    }
+}
+
+fn eval_int_infix(op: &TokenKind, i: i64, j: i64) -> Object {
+    use Object::*;
+    use TokenKind as T;
+    match op {
+        T::Plus => Int(i + j),
+        T::Minus => Int(i - j),
+        T::Asterisk => Int(i * j),
+        T::Slash => Int(i / j),
+        T::LT => Boolean(i < j),
+        T::GT => Boolean(i > j),
+        T::EQ => Boolean(i == j),
+        T::NEQ => Boolean(i != j),
+        _ => Error(EvalError::UnknownInfixOp)
+    }
+}
+
+fn eval_prefix_expr(op: &TokenKind, rhs: Rc<Object>) -> Rc<Object> {
+    match op {
+        TokenKind::Bang => eval_bang_op(rhs),
+        TokenKind::Minus => eval_minus_op(rhs),
+        _ => Rc::new(Object::Error(EvalError::UnknownPrefixOp)),
+    }
+}
+
+fn eval_bang_op(rhs: Rc<Object>) -> Rc<Object> {
+    use Object::*;
+    match *rhs {
+        Boolean(b) => Rc::new(Boolean(!b)),
+        Null => Rc::new(Boolean(true)),
+        _ => Rc::new(Boolean(false)),
+    }
+}
+
+fn eval_minus_op(rhs: Rc<Object>) -> Rc<Object> {
+    use Object::*;
+    match *rhs {
+        Int(i) => Rc::new(Int(-i)),
+        _ => Rc::new(Error(EvalError::UnknownPrefixOp)),
+    }
+}
+
+fn eval_block(block: &Block, env: EnvPointer) -> Rc<Object> {
+    let mut res = Rc::new(Object::Null);
+    for s in &block.stmts {
+        let val = eval_stmt(s, Rc::clone(&env));
+        match *val {
+            Object::Error(_)
+                | Object::Return(_) => return val,
+            _ => res = val,
+        }
+    }
+    res
+}
+
+fn is_truthy(obj: &Object) -> bool {
+    match obj {
+        Object::Null => false,
+        Object::Boolean(b) => *b,
+        _ => true,
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use parser::*;
     use lexer::*;
+    use parser::*;
     use test_case::test_case;
 
-    fn get_eval_output(input: &str) -> Object {
+    fn get_eval_output(input: &str) -> Rc<Object> {
         let l = Lexer::new(input);
         let p = Parser::new(l).parse_program().expect("invalid test input");
-        let mut env = Env::new();
-        eval(NodeKind::Program(p), &mut env)
+        let env = Env::new();
+        eval(NodeKind::Program(p), Rc::new(RefCell::new(env)))
     }
 
     #[test_case("let x = 4;", Object::Null; "int assign")]
     #[test_case("let x;", Object ::Null; "null assign")]
     #[test_case("let x = 4; x;", Object::Int(4); "int assign fetch")]
     #[test_case("let x; x;", Object::Null; "null assign fetch")]
+    #[test_case("let x; let x;", Object::Error(EvalError::IdentExists); "IdentExists error")]
     fn test_let_stmt(input: &str, exp: Object) {
-        assert_eq!(get_eval_output(input), exp);
+        assert_eq!(*get_eval_output(input), exp);
+    }
+
+    #[test_case("let x = 4; -x;", Object::Int(-4); "neg int")]
+    #[test_case("!4", Object::Boolean(false); "bang int")]
+    #[test_case("!true", Object::Boolean(false); "bang bool")]
+    fn test_prefix(input: &str, exp: Object) {
+        assert_eq!(*get_eval_output(input), exp);
+    }
+
+    #[test_case("let x; x = 5; x;", Object::Int(5); "int assign")]
+    #[test_case("let x; x = true; x;", Object::Boolean(true); "bool assign")]
+    fn test_assign_stmt(input: &str, exp: Object) {
+        assert_eq!(*get_eval_output(input), exp);
+    }
+
+    #[test_case("return 5;", Object::Int(5); "basic return")]
+    #[test_case("return 5; 4", Object::Int(5); "early return")]
+    fn test_return_stmt(input: &str, exp: Object) {
+        assert_eq!(*get_eval_output(input), exp);
+    }
+
+    #[test_case(
+        "let four = fn(x) { -x };four(-4);",
+        Object::Int(4);
+        "simple fn call"
+    )]
+    #[test_case("
+let neg = fn(x) {
+    fn() { -x };
+};
+let negTwo = neg(2);
+negTwo();",
+        Object::Int(-2);
+        "simple closure call"
+    )]
+    #[test_case("
+let x;
+fn() { x = 4; }();
+x;",
+        Object::Int(4);
+        "edit parent scope"
+    )]
+    fn test_closure_eval(input: &str, exp: Object) {
+        assert_eq!(*get_eval_output(input), exp);
+    }
+
+    #[test_case("3 + 2;", Object::Int(5); "basic add")]
+    #[test_case("6 / 2;", Object::Int(3); "whole divide")]
+    #[test_case("5 > 3;", Object::Boolean(true); "int GT int")]
+    #[test_case("true == false", Object::Boolean(false); "bool EQ bool")]
+    #[test_case("4 == false", Object::Boolean(false); "int EQ bool")]
+    #[test_case("4 * true", Object::Error(EvalError::UnknownInfixOp); "int MUL bool")]
+    fn test_infix_eval(input: &str, exp: Object) {
+        assert_eq!(*get_eval_output(input), exp);
+    }
+
+    #[test_case("if (true) { 1 } else { 2 };", Object::Int(1); "basic if")]
+    #[test_case("if (2 + 2 > 3) { 1 } else { 2 };", Object::Int(1); "expr cond")]
+    #[test_case("if (false) { 1 } else { 2 };", Object::Int(2); "alt eval")]
+    #[test_case("if (true) { };", Object::Null; "empty conseq")]
+    fn test_if_eval(input: &str, exp: Object) {
+        assert_eq!(*get_eval_output(input), exp);
+    }
+
+    #[test_case("
+switch (1 + 2) {
+    (true) => { 0 }
+    (3) => { 1 }
+};",
+        Object::Int(1);
+        "basic switch"
+    )]
+    #[test_case("
+switch (1 + 2) {
+    (true) => { 0 }
+    (5) => { 1 }
+};",
+        Object::Null;
+        "no default is null"
+    )]
+    #[test_case("
+switch (1 + 2) {
+    (true) => { 0 }
+    (5) => { 1 }
+    _ => { 2 }
+};",
+        Object::Int(2);
+        "basic switch with default"
+    )]
+    #[test_case("
+let x = switch (1 + 2) {
+    (true) => { 0 }
+    (3) => { 1 }
+};
+x;",
+        Object::Int(1);
+        "assign switch expr"
+    )]
+    fn test_switch_eval(input: &str, exp: Object) {
+        assert_eq!(*get_eval_output(input), exp);
     }
 }
