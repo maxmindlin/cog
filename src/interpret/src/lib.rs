@@ -350,13 +350,6 @@ negTwo();",
         Object::Int(-2);
         "simple closure call"
     )]
-    #[test_case("
-let x;
-fn() { x = 4; }();
-x;",
-        Object::Int(4);
-        "edit parent scope"
-    )]
     fn test_closure_eval(input: &str, exp: Object) {
         assert_eq!(*get_eval_output(input), exp);
     }

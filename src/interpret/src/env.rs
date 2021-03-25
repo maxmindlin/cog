@@ -44,10 +44,10 @@ impl Env {
     }
 
     pub fn set(&mut self, id: &Identifier, obj: Rc<Object>) -> Option<Rc<Object>> {
-        match self.outer.borrow().upgrade() {
-            None => self.store.insert(id.name.clone(), obj),
-            Some(env) => env.borrow_mut().set(id, obj),
-        }
-        // self.store.insert(id.name.clone(), obj)
+        // match self.outer.borrow().upgrade() {
+        //     None => self.store.insert(id.name.clone(), obj),
+        //     Some(env) => env.borrow_mut().set(id, obj),
+        // }
+        self.store.insert(id.name.clone(), obj)
     }
 }
