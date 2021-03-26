@@ -26,59 +26,60 @@ impl Lexer {
                         '=' => {
                             let mut lit = '='.to_string();
                             lit.push(*self.next().unwrap());
-                            Token::new(TokenKind::EQ, lit)
+                            Token::new(EQ, lit)
                         }
                         '>' => {
                             let mut lit = '='.to_string();
                             lit.push(*self.next().unwrap());
-                            Token::new(TokenKind::Arrow, lit)
+                            Token::new(Arrow, lit)
                         }
-                        _ => Token::new(TokenKind::Assign, '='.to_string()),
+                        _ => Token::new(Assign, '='.to_string()),
                     },
-                    None => Token::new(TokenKind::Assign, '='.to_string()),
+                    None => Token::new(Assign, '='.to_string()),
                 },
-                ';' => Token::new(TokenKind::Semicolon, c.to_string()),
-                '(' => Token::new(TokenKind::LParen, c.to_string()),
-                ')' => Token::new(TokenKind::RParen, c.to_string()),
-                ',' => Token::new(TokenKind::Comma, c.to_string()),
-                '+' => Token::new(TokenKind::Plus, c.to_string()),
-                '{' => Token::new(TokenKind::LBrace, c.to_string()),
-                '}' => Token::new(TokenKind::RBrace, c.to_string()),
-                '[' => Token::new(TokenKind::LBracket, c.to_string()),
-                ']' => Token::new(TokenKind::RBracket, c.to_string()),
-                ':' => Token::new(TokenKind::Colon, c.to_string()),
-                '-' => Token::new(TokenKind::Minus, c.to_string()),
+                '%' => Token::new(Modulo, c.to_string()),
+                ';' => Token::new(Semicolon, c.to_string()),
+                '(' => Token::new(LParen, c.to_string()),
+                ')' => Token::new(RParen, c.to_string()),
+                ',' => Token::new(Comma, c.to_string()),
+                '+' => Token::new(Plus, c.to_string()),
+                '{' => Token::new(LBrace, c.to_string()),
+                '}' => Token::new(RBrace, c.to_string()),
+                '[' => Token::new(LBracket, c.to_string()),
+                ']' => Token::new(RBracket, c.to_string()),
+                ':' => Token::new(Colon, c.to_string()),
+                '-' => Token::new(Minus, c.to_string()),
                 '!' => match self.peek() {
                     Some(pc) => match *pc {
                         '=' => {
                             let mut lit = '!'.to_string();
                             lit.push(*self.next().unwrap());
-                            Token::new(TokenKind::NEQ, lit)
+                            Token::new(NEQ, lit)
                         }
-                        _ => Token::new(TokenKind::Bang, '!'.to_string()),
+                        _ => Token::new(Bang, '!'.to_string()),
                     },
-                    _ => Token::new(TokenKind::Bang, '!'.to_string()),
+                    _ => Token::new(Bang, '!'.to_string()),
                 },
-                '*' => Token::new(TokenKind::Asterisk, c.to_string()),
-                '/' => Token::new(TokenKind::Slash, c.to_string()),
-                '<' => Token::new(TokenKind::LT, c.to_string()),
-                '>' => Token::new(TokenKind::GT, c.to_string()),
+                '*' => Token::new(Asterisk, c.to_string()),
+                '/' => Token::new(Slash, c.to_string()),
+                '<' => Token::new(LT, c.to_string()),
+                '>' => Token::new(GT, c.to_string()),
                 '"' => {
                     let literal = self.read_string();
-                    Token::new(TokenKind::Str, literal)
+                    Token::new(Str, literal)
                 },
-                '_' => Token::new(TokenKind::LowDash, c.to_string()),
-                '&' => Token::new(TokenKind::And, c.to_string()),
+                '_' => Token::new(LowDash, c.to_string()),
+                '&' => Token::new(And, c.to_string()),
                 '|' => match self.peek() {
                     Some(pc) => match *pc {
                         '>' => {
                             let mut lit = '|'.to_string();
                             lit.push(*self.next().unwrap());
-                            Token::new(TokenKind::Pipe, lit)
+                            Token::new(Pipe, lit)
                         },
-                        _ => Token::new(TokenKind::Or, '|'.to_string())
+                        _ => Token::new(Or, '|'.to_string())
                     },
-                    None => Token::new(TokenKind::Or, '|'.to_string())
+                    None => Token::new(Or, '|'.to_string())
                 },
                 _ if c.is_whitespace() => self.next_token(),
                 _ if c.is_numeric() => {
@@ -113,7 +114,8 @@ impl Lexer {
         let start = self.pos;
         let mut i = vec![self.input[start]];
         while self.peek().is_some()
-            && self.peek().unwrap().is_alphabetic()
+            //&& self.peek().unwrap().is_alphabetic()
+            && is_valid_identifier(self.peek().unwrap())
         {
             i.push(*self.next().unwrap());
         }
@@ -151,6 +153,10 @@ impl Lexer {
     }
 }
 
+fn is_valid_identifier(c: &char) -> bool {
+    c.is_alphabetic() || c.is_numeric() || *c == '_'
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -158,7 +164,7 @@ mod tests {
     use test_case::test_case;
 
     #[test_case(
-        "let x = 1 => |>",
+        "let x = 1 => |> foo_bar5 %",
         vec!(
             Token::new(Let, "let".into()),
             Token::new(Ident, "x".into()),
@@ -166,6 +172,8 @@ mod tests {
             Token::new(Int, "1".into()),
             Token::new(Arrow, "=>".into()),
             Token::new(Pipe, "|>".into()),
+            Token::new(Ident, "foo_bar5".into()),
+            Token::new(Modulo, "%".into()),
         ); "assignment"
     )]
     fn test_token(input: &str, exp: Vec<Token>) {

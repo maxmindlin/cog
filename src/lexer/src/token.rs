@@ -17,6 +17,7 @@ pub enum TokenKind {
     NEQ,
     Or,
     And,
+    Modulo,
 
     LT,
     GT,

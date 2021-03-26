@@ -1,4 +1,4 @@
-use crate::object::Object;
+use crate::object::{EvalError, Object};
 use crate::EnvPointer;
 use parser::Identifier;
 use std::cell::RefCell;
@@ -43,11 +43,28 @@ impl Env {
         }
     }
 
-    pub fn set(&mut self, id: &Identifier, obj: Rc<Object>) -> Option<Rc<Object>> {
-        // match self.outer.borrow().upgrade() {
-        //     None => self.store.insert(id.name.clone(), obj),
-        //     Some(env) => env.borrow_mut().set(id, obj),
-        // }
-        self.store.insert(id.name.clone(), obj)
+    // Assigns the key to an object. Will only assign if the key does not already exist
+    // in the local scope. Will never assign to the outer scope.
+    pub fn set(&mut self, id: &Identifier, obj: Rc<Object>) -> Result<(), EvalError> {
+        if !self.store.contains_key(&id.name) {
+            self.store.insert(id.name.clone(), obj);
+            Ok(())
+        } else {
+            Err(EvalError::DuplicateDeclare)
+        }
+    }
+
+    // Override the value of a var with a new object. Will prioritize overriding the local
+    // scope before checking the outer scope. Will only override if the key already exists.
+    pub fn assign(&mut self, id: &Identifier, obj: Rc<Object>) -> Result<(), EvalError> {
+        if self.store.get(&id.name).is_some() {
+            self.store.insert(id.name.clone(), obj);
+            return Ok(());
+        }
+
+        match self.outer.borrow_mut().upgrade() {
+            None => Err(EvalError::UnknownIdent),
+            Some(env) => env.borrow_mut().assign(id, obj),
+        }
     }
 }

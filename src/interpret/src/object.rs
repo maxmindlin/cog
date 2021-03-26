@@ -13,6 +13,7 @@ pub enum EvalError {
     UnknownPrefixOp,
     UnknownInfixOp,
     IdentExists,
+    DuplicateDeclare,
 }
 
 #[derive(Debug, PartialEq, Eq, Clone)]

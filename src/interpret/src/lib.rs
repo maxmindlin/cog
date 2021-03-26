@@ -48,14 +48,18 @@ fn eval_stmt(stmt: &StmtKind, env: EnvPointer) -> Rc<Object> {
     use StmtKind::*;
     match stmt {
         Assign(id, e) => {
-            // If you attempt to assign to a non-declared var,
-            // its an error.
-            if env.borrow().get(id).is_none() {
-                return Rc::new(Object::Error(EvalError::UnknownIdent));
-            }
+            // // If you attempt to assign to a non-declared var,
+            // // its an error.
+            // if env.borrow().get(id).is_none() {
+            //     return Rc::new(Object::Error(EvalError::UnknownIdent));
+            // }
             let val = eval_expr(e, Rc::clone(&env));
-            env.borrow_mut().set(id, val);
-            Rc::new(Object::Null)
+            match env.borrow_mut().assign(id, val) {
+                Ok(_) => Rc::new(Object::Null),
+                Err(e) => Rc::new(Object::Error(e)),
+            }
+            // env.borrow_mut().set(id, val);
+            // Rc::new(Object::Null)
         }
         Expr(e) => eval_expr(e, env),
         Return(rv) => match rv {
@@ -67,18 +71,24 @@ fn eval_stmt(stmt: &StmtKind, env: EnvPointer) -> Rc<Object> {
         },
         Let(id, exp) => {
             // if you attempt to declare a var twice, its an error.
-            if env.borrow().get(id).is_some() {
-                return Rc::new(Object::Error(EvalError::IdentExists));
-            }
+            // if env.borrow().get(id).is_some() {
+            //     return Rc::new(Object::Error(EvalError::IdentExists));
+            // }
             match exp {
                 None => {
-                    env.borrow_mut().set(id, Rc::new(Object::Null));
-                    Rc::new(Object::Null)
+                     match env.borrow_mut().set(id, Rc::new(Object::Null)) {
+                        Ok(_) => Rc::new(Object::Null),
+                        Err(e) => Rc::new(Object::Error(e)),
+                     }
+                    // Rc::new(Object::Null)
                 }
                 Some(e) => {
                     let val = eval_expr(e, Rc::clone(&env));
-                    env.borrow_mut().set(id, val);
-                    Rc::new(Object::Null)
+                    match env.borrow_mut().set(id, val) {
+                        Ok(_) => Rc::new(Object::Null),
+                        Err(e) => Rc::new(Object::Error(e)),
+                    }
+                    // Rc::new(Object::Null)
                 }
             }
         },
@@ -98,11 +108,14 @@ fn eval_expr(expr: &ExprKind, env: EnvPointer) -> Rc<Object> {
             Rc::new(eval_infix_expr(op, &elhs, &erhs))
         }
         If(cond, conseq, alt) => {
-            let val = eval_expr(cond, Rc::clone(&env));
+            let mut scope = Env::new();
+            scope.add_outer(env);
+            let scoped_env = Rc::new(RefCell::new(scope));
+            let val = eval_expr(cond, Rc::clone(&scoped_env));
             match *val {
                 Object::Error(_) => val,
-                _ if is_truthy(&val) => eval_block(conseq,env),
-                _ => eval_block(alt, env),
+                _ if is_truthy(&val) => eval_block(conseq, scoped_env),
+                _ => eval_block(alt, scoped_env),
             }
         }
         Prefix(op, e) => {
@@ -126,14 +139,17 @@ fn eval_expr(expr: &ExprKind, env: EnvPointer) -> Rc<Object> {
             apply_fn(&func, &args)
         }
         Switch(cond, cases, def) => {
-            let val = eval_expr(cond, Rc::clone(&env));
+            let mut scope = Env::new();
+            scope.add_outer(env);
+            let scoped = Rc::new(RefCell::new(scope));
+            let val = eval_expr(cond, Rc::clone(&scoped));
             for c in cases.iter() {
-                let to_compare = eval_expr(&c.cond, Rc::clone(&env));
+                let to_compare = eval_expr(&c.cond, Rc::clone(&scoped));
                 if val == to_compare {
-                    return eval_block(&c.conseq, Rc::clone(&env));
+                    return eval_block(&c.conseq, Rc::clone(&scoped));
                 }
             }
-            eval_block(def, env)
+            eval_block(def, scoped)
         }
         Chain(calls) => {
             let mut prev: Option<Rc<Object>> = None;
@@ -192,7 +208,11 @@ fn extend_fn_env(func: &FuncLiteral, args: &Vec<Rc<Object>>) -> EnvPointer {
     let mut to_extend = Env::new();
     to_extend.add_outer(Rc::clone(&func.env));
     for (i, param) in func.params.iter().enumerate() {
-        to_extend.set(param, Rc::clone(args.get(i).unwrap()));
+        // ignore this result, since the only way this fails is
+        // if there is a duplicate ident. Thats impossible, since it
+        // can only affect local scope, and we have just created a fresh
+        // env with a completely empty local scope.
+        let _ = to_extend.set(param, Rc::clone(args.get(i).unwrap()));
     }
     Rc::new(RefCell::new(to_extend))
 }
@@ -235,6 +255,7 @@ fn eval_int_infix(op: &TokenKind, i: i64, j: i64) -> Object {
         T::GT => Boolean(i > j),
         T::EQ => Boolean(i == j),
         T::NEQ => Boolean(i != j),
+        T::Modulo => Int(i % j),
         _ => Error(EvalError::UnknownInfixOp)
     }
 }
@@ -312,7 +333,7 @@ mod tests {
     #[test_case("let x;", Object ::Null; "null assign")]
     #[test_case("let x = 4; x;", Object::Int(4); "int assign fetch")]
     #[test_case("let x; x;", Object::Null; "null assign fetch")]
-    #[test_case("let x; let x;", Object::Error(EvalError::IdentExists); "IdentExists error")]
+    #[test_case("let x; let x;", Object::Error(EvalError::DuplicateDeclare); "IdentExists error")]
     fn test_let_stmt(input: &str, exp: Object) {
         assert_eq!(*get_eval_output(input), exp);
     }
@@ -364,6 +385,7 @@ negTwo();",
     #[test_case("4 & false", Object::Boolean(false); "int AND bool")]
     #[test_case("4 | false", Object::Boolean(true); "int OR bool")]
     #[test_case(r#""foo" + "bar""#, Object::Str("foobar".to_owned()); "str PLUS str")]
+    #[test_case("5 % 2", Object::Int(1); "int MODULO int")]
     fn test_infix_eval(input: &str, exp: Object) {
         assert_eq!(*get_eval_output(input), exp);
     }
