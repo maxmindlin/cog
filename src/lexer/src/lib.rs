@@ -164,7 +164,7 @@ mod tests {
     use test_case::test_case;
 
     #[test_case(
-        "let x = 1 => |> foo_bar5 % while",
+        "let x = 1 => |> foo_bar5 % while elif",
         vec!(
             Token::new(Let, "let".into()),
             Token::new(Ident, "x".into()),
@@ -175,6 +175,7 @@ mod tests {
             Token::new(Ident, "foo_bar5".into()),
             Token::new(Modulo, "%".into()),
             Token::new(While, "while".into()),
+            Token::new(Elif, "elif".into()),
         ); "assignment"
     )]
     fn test_token(input: &str, exp: Vec<Token>) {

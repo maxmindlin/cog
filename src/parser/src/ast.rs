@@ -27,7 +27,7 @@ pub enum ExprKind {
     Ident(Identifier),
     Int(i64),
     Str(String),
-    If(Box<ExprKind>, Block, Block),
+    If(Box<Vec<IfBlock>>, Block),
     Switch(Box<ExprKind>, Box<Vec<SwitchCase>>, Block),
     Prefix(TokenKind, Box<ExprKind>),
     Infix(TokenKind, Box<ExprKind>, Box<ExprKind>),
@@ -43,6 +43,18 @@ pub struct SwitchCase {
 }
 
 impl SwitchCase {
+    pub fn new(cond: ExprKind, conseq: Block) -> Self {
+        Self { cond, conseq }
+    }
+}
+
+#[derive(Debug, PartialEq, Eq, Clone)]
+pub struct IfBlock {
+    pub cond: ExprKind,
+    pub conseq: Block,
+}
+
+impl IfBlock {
     pub fn new(cond: ExprKind, conseq: Block) -> Self {
         Self { cond, conseq }
     }

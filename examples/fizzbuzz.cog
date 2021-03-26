@@ -1,0 +1,17 @@
+let fizzbuzz = fn (limit) {
+	let i = 1;
+	while (i < limit) {
+		if (i % 15 == 0) {
+			puts("fizzbuzz");
+		} elif (i % 3 == 0) {
+			puts("fizz");
+		} elif (i % 5 == 0) {
+			puts("buzz");
+		} else {
+			puts(i);
+		}
+		i = i + 1;
+	}
+}
+
+fizzbuzz(100);

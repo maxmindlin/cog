@@ -111,16 +111,21 @@ fn eval_expr(expr: &ExprKind, env: EnvPointer) -> Rc<Object> {
             let erhs = return_error!(eval_expr(rhs, Rc::clone(&env)));
             Rc::new(eval_infix_expr(op, &elhs, &erhs))
         }
-        If(cond, conseq, alt) => {
+        If(blocks, alt) => {
             let mut scope = Env::new();
             scope.add_outer(env);
-            let scoped_env = Rc::new(RefCell::new(scope));
-            let val = eval_expr(cond, Rc::clone(&scoped_env));
-            match *val {
-                Object::Error(_) => val,
-                _ if is_truthy(&val) => eval_block(conseq, scoped_env),
-                _ => eval_block(alt, scoped_env),
+            let scoped = Rc::new(RefCell::new(scope));
+            for b in blocks.iter() {
+                let val = return_error!(eval_expr(&b.cond, Rc::clone(&scoped)));
+                if is_truthy(&val) { return eval_block(&b.conseq, Rc::clone(&scoped)); };
             }
+            eval_block(alt, scoped)
+            // let val = eval_expr(cond, Rc::clone(&scoped_env));
+            // match *val {
+            //     Object::Error(_) => val,
+            //     _ if is_truthy(&val) => eval_block(conseq, scoped_env),
+            //     _ => eval_block(alt, scoped_env),
+            // }
         }
         Prefix(op, e) => {
             let obj = return_error!(eval_expr(e, Rc::clone(&env)));
@@ -217,6 +222,8 @@ fn extend_fn_env(func: &FuncLiteral, args: &Vec<Rc<Object>>) -> EnvPointer {
         // if there is a duplicate ident. Thats impossible, since it
         // can only affect local scope, and we have just created a fresh
         // env with a completely empty local scope.
+        // TODO this might cause weird behavior if they provide duplicate params.
+        // Ex. fn (x,x) ...
         let _ = to_extend.set(param, Rc::clone(args.get(i).unwrap()));
     }
     Rc::new(RefCell::new(to_extend))
@@ -402,6 +409,7 @@ negTwo();",
     #[test_case("if (2 + 2 > 3) { 1 } else { 2 };", Object::Int(1); "expr cond")]
     #[test_case("if (false) { 1 } else { 2 };", Object::Int(2); "alt eval")]
     #[test_case("if (true) { };", Object::Null; "empty conseq")]
+    #[test_case("if (false) { 1 } elif (true) { 2 };", Object::Int(2); "elif eval")]
     fn test_if_eval(input: &str, exp: Object) {
         assert_eq!(*get_eval_output(input), exp);
     }

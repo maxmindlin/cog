@@ -1,6 +1,6 @@
 mod ast;
 
-pub use ast::{ExprKind, Identifier, NodeKind, Program, StmtKind, Block, SwitchCase};
+pub use ast::{ExprKind, Identifier, NodeKind, Program, StmtKind, Block, SwitchCase, IfBlock};
 
 use lexer::{Lexer, Token, TokenKind};
 
@@ -344,20 +344,29 @@ impl Parser {
         Ok(ExprKind::Chain(Box::new(out)))
     }
 
-    fn parse_if_expr(&mut self) -> ParseResult<ExprKind> {
+    fn parse_if_block(&mut self) -> ParseResult<IfBlock> {
         self.expect_peek(TokenKind::LParen)?;
         self.next_token();
         let cond = self.parse_expr(Precedence::Lowest)?;
         self.expect_peek(TokenKind::RParen)?;
         self.expect_peek(TokenKind::LBrace)?;
         let conseq = self.parse_block()?;
+        Ok(IfBlock::new(cond, conseq))
+    }
+
+    fn parse_if_expr(&mut self) -> ParseResult<ExprKind> {
+        let mut conds = vec![self.parse_if_block()?];
+        while self.peek.kind == TokenKind::Elif {
+            self.next_token();
+            conds.push(self.parse_if_block()?);
+        }
         let mut alt = Block::default();
         if self.peek.kind == TokenKind::Else {
             self.next_token();
             self.expect_peek(TokenKind::LBrace)?;
             alt = self.parse_block()?;
         }
-        Ok(ExprKind::If(Box::new(cond), conseq, alt))
+        Ok(ExprKind::If(Box::new(conds), alt))
     }
 
     fn parse_while_expr(&mut self) -> ParseResult<StmtKind> {
@@ -547,20 +556,51 @@ mod tests {
     #[test_case(
         "if (true) { 1 } else { 2 };",
         ExprKind::If(
-            Box::new(ExprKind::Boolean(true)),
-            Block::new(vec!(StmtKind::Expr(ExprKind::Int(1)))),
-            Block::new(vec!(StmtKind::Expr(ExprKind::Int(2)))),
+            Box::new(
+                vec!(
+                    IfBlock::new(
+                        ExprKind::Boolean(true),
+                        Block::new(vec!(StmtKind::Expr(ExprKind::Int(1))))
+                    ),
+                )
+            ),
+            Block::new(vec!(StmtKind::Expr(ExprKind::Int(2))))
         );
         "basic full if"
     )]
     #[test_case(
         "if (true) { 1 };",
         ExprKind::If(
-            Box::new(ExprKind::Boolean(true)),
-            Block::new(vec!(StmtKind::Expr(ExprKind::Int(1)))),
+            Box::new(
+                vec!(
+                    IfBlock::new(
+                        ExprKind::Boolean(true),
+                        Block::new(vec!(StmtKind::Expr(ExprKind::Int(1))))
+                    ),
+                )
+            ),
             Block::new(vec!()),
         );
         "if missing alt"
+    )]
+    #[test_case(
+        "if (true) { 1 } elif (true) { 3 } else { 2 };",
+        ExprKind::If(
+            Box::new(
+                vec!(
+                    IfBlock::new(
+                        ExprKind::Boolean(true),
+                        Block::new(vec!(StmtKind::Expr(ExprKind::Int(1))))
+                    ),
+                    IfBlock::new(
+                        ExprKind::Boolean(true),
+                        Block::new(vec!(StmtKind::Expr(ExprKind::Int(3))))
+                    ),
+                )
+            ),
+            Block::new(vec!(StmtKind::Expr(ExprKind::Int(2))))
+        );
+        "basic elif"
     )]
     fn test_if(input: &str, exp: ExprKind) {
         assert_single_expr(input, exp);
