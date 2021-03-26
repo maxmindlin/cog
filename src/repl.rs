@@ -28,7 +28,7 @@ pub fn run_repl() {
                 match parser.parse_program() {
                     Ok(prgm) => {
                         let out = eval(NodeKind::Program(prgm), Rc::clone(&env));
-                        println!("{:#?}", out);
+                        println!("{}", out.to_string());
                     }
                     Err(e) => println!("parser error: {:#?}", e),
                 }

@@ -44,6 +44,7 @@ pub enum TokenKind {
     Else,
     Return,
     Switch,
+    While,
 }
 
 impl TokenKind {
@@ -58,6 +59,7 @@ impl TokenKind {
             "else" => Some(Else),
             "return" => Some(Return),
             "switch" => Some(Switch),
+            "while" => Some(While),
             _ => None,
         }
     }

@@ -142,6 +142,7 @@ impl Parser {
                 }
             },
             TokenKind::Return => self.parse_return_stmt(),
+            TokenKind::While => self.parse_while_expr(),
             _ => self.parse_expr_stmt(),
         }
     }
@@ -359,6 +360,19 @@ impl Parser {
         Ok(ExprKind::If(Box::new(cond), conseq, alt))
     }
 
+    fn parse_while_expr(&mut self) -> ParseResult<StmtKind> {
+        self.expect_peek(TokenKind::LParen)?;
+        self.next_token();
+        let cond = self.parse_expr(Precedence::Lowest)?;
+        self.expect_peek(TokenKind::RParen)?;
+        self.expect_peek(TokenKind::LBrace)?;
+        let body = self.parse_block()?;
+        if self.peek.kind == TokenKind::Semicolon {
+            self.next_token();
+        }
+        Ok(StmtKind::While(Box::new(cond), body))
+    }
+
     fn parse_switch_expr(&mut self) -> ParseResult<ExprKind> {
         self.expect_peek(TokenKind::LParen)?;
         self.next_token();
@@ -515,6 +529,18 @@ mod tests {
         "basic fn"
     )]
     fn test_fn(input: &str, exp: StmtKind) {
+        assert_single_output(input, exp);
+    }
+
+    #[test_case(
+        "while (true) {};",
+        StmtKind::While(
+            Box::new(ExprKind::Boolean(true)),
+            Block::default(),
+        );
+        "while loop empty body"
+    )]
+    fn test_while(input: &str, exp: StmtKind) {
         assert_single_output(input, exp);
     }
 

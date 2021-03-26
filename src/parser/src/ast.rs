@@ -18,6 +18,7 @@ pub enum StmtKind {
     Assign(Identifier, ExprKind),
     Return(Option<ExprKind>),
     Expr(ExprKind),
+    While(Box<ExprKind>, Block),
 }
 
 #[derive(Debug, PartialEq, Eq, Clone)]

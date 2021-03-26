@@ -3,7 +3,7 @@ mod object;
 
 pub use env::Env;
 use lexer::TokenKind;
-use object::{FuncLiteral, Object, EvalError};
+use object::{FuncLiteral, Object, EvalError, BuiltinKind};
 use parser::{ExprKind, Identifier, NodeKind, Program, StmtKind, Block};
 
 use std::cell::RefCell;
@@ -48,18 +48,11 @@ fn eval_stmt(stmt: &StmtKind, env: EnvPointer) -> Rc<Object> {
     use StmtKind::*;
     match stmt {
         Assign(id, e) => {
-            // // If you attempt to assign to a non-declared var,
-            // // its an error.
-            // if env.borrow().get(id).is_none() {
-            //     return Rc::new(Object::Error(EvalError::UnknownIdent));
-            // }
             let val = eval_expr(e, Rc::clone(&env));
             match env.borrow_mut().assign(id, val) {
                 Ok(_) => Rc::new(Object::Null),
                 Err(e) => Rc::new(Object::Error(e)),
             }
-            // env.borrow_mut().set(id, val);
-            // Rc::new(Object::Null)
         }
         Expr(e) => eval_expr(e, env),
         Return(rv) => match rv {
@@ -70,17 +63,12 @@ fn eval_stmt(stmt: &StmtKind, env: EnvPointer) -> Rc<Object> {
             }
         },
         Let(id, exp) => {
-            // if you attempt to declare a var twice, its an error.
-            // if env.borrow().get(id).is_some() {
-            //     return Rc::new(Object::Error(EvalError::IdentExists));
-            // }
             match exp {
                 None => {
                      match env.borrow_mut().set(id, Rc::new(Object::Null)) {
                         Ok(_) => Rc::new(Object::Null),
                         Err(e) => Rc::new(Object::Error(e)),
                      }
-                    // Rc::new(Object::Null)
                 }
                 Some(e) => {
                     let val = eval_expr(e, Rc::clone(&env));
@@ -88,10 +76,26 @@ fn eval_stmt(stmt: &StmtKind, env: EnvPointer) -> Rc<Object> {
                         Ok(_) => Rc::new(Object::Null),
                         Err(e) => Rc::new(Object::Error(e)),
                     }
-                    // Rc::new(Object::Null)
                 }
             }
         },
+        While(cond, body) => {
+            let mut scope = Env::new();
+            scope.add_outer(env);
+            let scoped_env = Rc::new(RefCell::new(scope));
+            let mut val = eval_expr(cond, Rc::clone(&scoped_env));
+            while is_truthy(&*val) {
+                let eval = eval_block(body, Rc::clone(&&scoped_env));
+                match &*eval {
+                    Object::Return(_)
+                        | Object::Error(_) => return eval,
+                    _ => {
+                        val = eval_expr(cond, Rc::clone(&scoped_env));
+                    }
+                }
+            }
+            Rc::new(Object::Null)
+        }
     }
 }
 
@@ -200,6 +204,7 @@ fn apply_fn(func: &Object, args: &Vec<Rc<Object>>) -> Rc<Object> {
                 _ => eval,
             }
         },
+        Object::Builtin(b) => b.apply(args),
         _ => Rc::new(Object::Error(EvalError::NonFunction))
     }
 }
@@ -220,7 +225,10 @@ fn extend_fn_env(func: &FuncLiteral, args: &Vec<Rc<Object>>) -> EnvPointer {
 fn eval_ident(id: &Identifier, env: EnvPointer) -> Rc<Object> {
     match env.borrow().get(id) {
         Some(obj) => Rc::clone(&obj),
-        None => Rc::new(Object::Error(EvalError::UnknownIdent)),
+        None => match BuiltinKind::is_from(&id.name) {
+            None => Rc::new(Object::Error(EvalError::UnknownIdent)),
+            Some(built) => Rc::new(Object::Builtin(built)),
+        }
     }
 }
 

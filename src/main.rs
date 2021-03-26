@@ -23,7 +23,7 @@ fn main() {
             match parser.parse_program() {
                 Ok(prgm) => {
                     let out = eval(NodeKind::Program(prgm), env);
-                    println!("{:#?}", out);
+                    println!("{}", out.to_string());
                 },
                 Err(e) => println!("parser error: {:#?}", e)
             }
