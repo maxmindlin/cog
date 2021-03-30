@@ -16,8 +16,9 @@ pub(crate) type EnvPointer = Rc<RefCell<Env>>;
 macro_rules! return_error {
     ($expr:expr) => {
         match &*$expr {
-            $crate::object::Object::Error(_) => return $expr,
-            _ => $expr,
+            // TODO this should _not_ be cloning.
+            val @ $crate::object::Object::Error(_) => Rc::new(val.clone()),
+            val @ _ => Rc::new(val.clone()),
         }
     };
 }
