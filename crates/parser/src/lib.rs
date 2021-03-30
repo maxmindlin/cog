@@ -48,6 +48,7 @@ fn map_prefix_fn(kind: &TokenKind) -> Option<PrefixParseFn> {
     match kind {
         Ident => Some(Parser::parse_ident),
         Int => Some(Parser::parse_int_literal),
+        Float => Some(Parser::parse_float_literal),
         True => Some(Parser::parse_boolean),
         False => Some(Parser::parse_boolean),
         Bang => Some(Parser::parse_prefix),
@@ -85,6 +86,7 @@ pub enum ParseError {
     UnexpectedToken(TokenKind, TokenKind),
     UnknownPrefix(TokenKind),
     InvalidInt(String),
+    InvalidFloat(String),
 }
 
 pub struct Parser {
@@ -231,6 +233,14 @@ impl Parser {
         match to_parse.parse::<i64>() {
             Ok(i) => Ok(ExprKind::Int(i)),
             Err(_) => Err(ParseError::InvalidInt(to_parse)),
+        }
+    }
+
+    fn parse_float_literal(&mut self) -> ParseResult<ExprKind> {
+        let to_parse = self.curr.literal.clone();
+        match to_parse.parse::<f64>() {
+            Ok(f) => Ok(ExprKind::Float(f)),
+            Err(_) => Err(ParseError::InvalidFloat(to_parse)),
         }
     }
 

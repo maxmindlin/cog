@@ -9,6 +9,7 @@ use std::rc::Rc;
 pub enum EvalError {
     TypeMismatch,
     InvalidUsage,
+    InvalidFnParams,
     NonFunction,
     UnknownIdent,
     UnknownPrefixOp,
@@ -16,11 +17,12 @@ pub enum EvalError {
     DuplicateDeclare,
 }
 
-#[derive(Debug, PartialEq, Eq, Clone)]
+#[derive(Debug, PartialEq, Clone)]
 pub enum Object {
     Builtin(BuiltinKind),
     Boolean(bool),
     Int(i64),
+    Float(f64),
     Str(String),
     Null,
     Error(EvalError),
@@ -28,7 +30,24 @@ pub enum Object {
     Func(Rc<FuncLiteral>),
 }
 
-#[derive(Debug, PartialEq, Eq, Clone)]
+impl Object {
+    pub fn type_literal(&self) -> String {
+        use Object::*;
+        match self {
+            Builtin(_) => "function".to_owned(),
+            Boolean(_) => "bool".to_owned(),
+            Int(_) => "int".to_owned(),
+            Float(_) => "float".to_owned(),
+            Str(_) => "string".to_owned(),
+            Null => "null".to_owned(),
+            Error(_) => "error".to_owned(),
+            Return(o) => o.type_literal(),
+            Func(_) => "function".to_owned(),
+        }
+    }
+}
+
+#[derive(Debug, PartialEq, Clone)]
 pub struct FuncLiteral {
     pub params: Vec<Identifier>,
     pub body: Block,
@@ -44,6 +63,7 @@ impl FuncLiteral {
 #[derive(Debug, PartialEq, Eq, Clone)]
 pub enum BuiltinKind {
     Puts,
+    Type,
 }
 
 impl BuiltinKind {
@@ -51,6 +71,7 @@ impl BuiltinKind {
         use BuiltinKind::*;
         match s {
             "puts" => Some(Puts),
+            "type" => Some(Type),
             _ => None,
         }
     }
@@ -61,6 +82,12 @@ impl BuiltinKind {
             Puts => {
                 args.iter().for_each(|a| println!("{}", a.to_string()));
                 Rc::new(Object::Null)
+            }
+            Type => {
+                if args.len() != 1 {
+                    return Rc::new(Object::Error(EvalError::InvalidFnParams));
+                }
+                Rc::new(Object::Str(args[0].type_literal()))
             }
         }
     }
@@ -73,6 +100,7 @@ impl ToString for Object {
             Builtin(b) => b.to_string(),
             Boolean(b) => b.to_string(),
             Int(i) => i.to_string(),
+            Float(f) => f.to_string(),
             Str(s) => s.clone(),
             Null => "null".to_string(),
             Error(e) => e.to_string(),
@@ -96,6 +124,7 @@ impl ToString for EvalError {
         match self {
             TypeMismatch => "type mismatch".to_owned(),
             InvalidUsage => "invalid usage".to_owned(),
+            InvalidFnParams => "wrong number of fn params".to_owned(),
             NonFunction => "not a function".to_owned(),
             UnknownIdent => "unknown identifier".to_owned(),
             UnknownPrefixOp => "unknown prefix operator".to_owned(),
@@ -110,6 +139,7 @@ impl ToString for BuiltinKind {
         use BuiltinKind::*;
         match self {
             Puts => "puts".to_owned(),
+            Type => "type".to_owned(),
         }
     }
 }

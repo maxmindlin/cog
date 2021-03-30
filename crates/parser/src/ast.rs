@@ -12,7 +12,7 @@ pub struct Program {
     pub stmts: Vec<StmtKind>,
 }
 
-#[derive(Debug, PartialEq, Eq, Clone)]
+#[derive(Debug, PartialEq, Clone)]
 pub enum StmtKind {
     Let(Identifier, Option<ExprKind>),
     Assign(Identifier, ExprKind),
@@ -21,11 +21,12 @@ pub enum StmtKind {
     While(Box<ExprKind>, Block),
 }
 
-#[derive(Debug, PartialEq, Eq, Clone)]
+#[derive(Debug, PartialEq, Clone)]
 pub enum ExprKind {
     Boolean(bool),
     Ident(Identifier),
     Int(i64),
+    Float(f64),
     Str(String),
     If(Box<Vec<IfBlock>>, Block),
     Switch(Box<ExprKind>, Box<Vec<SwitchCase>>, Block),
@@ -36,7 +37,7 @@ pub enum ExprKind {
     Chain(Box<Vec<ExprKind>>),
 }
 
-#[derive(Debug, PartialEq, Eq, Clone)]
+#[derive(Debug, PartialEq, Clone)]
 pub struct SwitchCase {
     pub cond: ExprKind,
     pub conseq: Block,
@@ -48,7 +49,7 @@ impl SwitchCase {
     }
 }
 
-#[derive(Debug, PartialEq, Eq, Clone)]
+#[derive(Debug, PartialEq, Clone)]
 pub struct IfBlock {
     pub cond: ExprKind,
     pub conseq: Block,
@@ -71,7 +72,7 @@ impl Identifier {
     }
 }
 
-#[derive(Debug, PartialEq, Eq, Clone, Default)]
+#[derive(Debug, PartialEq, Clone, Default)]
 pub struct Block {
     pub stmts: Vec<StmtKind>,
 }

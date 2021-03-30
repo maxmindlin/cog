@@ -8,13 +8,13 @@ edition = "2018"
 
 [workspace]
 members = [
-	"src/crates/lexer",
-	"src/crates/parser",
-	"src/crates/interpret"
+	"crates/lexer",
+	"crates/parser",
+	"crates/interpret"
 ]
 
 [dependencies]
-lexer = { path = "src/crates/lexer" }
-parser = { path = "src/crates/parser" }
-interpret = { path = "src/crates/interpret" }
+lexer = { path = "crates/lexer" }
+parser = { path = "crates/parser" }
+interpret = { path = "crates/interpret" }
 rustyline = "8.0.0"

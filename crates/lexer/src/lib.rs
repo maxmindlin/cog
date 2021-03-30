@@ -84,7 +84,11 @@ impl Lexer {
                 _ if c.is_whitespace() => self.next_token(),
                 _ if c.is_numeric() => {
                     let lit = self.read_numeric();
-                    Token::new(Int, lit)
+                    if lit.contains('.') {
+                        Token::new(Float, lit)
+                    } else {
+                        Token::new(Int, lit)
+                    }
                 }
                 _ if c.is_alphabetic() => {
                     let lit = self.read_identifier();
@@ -114,7 +118,6 @@ impl Lexer {
         let start = self.pos;
         let mut i = vec![self.input[start]];
         while self.peek().is_some()
-            //&& self.peek().unwrap().is_alphabetic()
             && is_valid_identifier(self.peek().unwrap())
         {
             i.push(*self.next().unwrap());
@@ -126,7 +129,7 @@ impl Lexer {
         let start = self.pos;
         let mut i = vec![self.input[start]];
         while self.peek().is_some()
-            && self.peek().unwrap().is_numeric()
+            && is_valid_numeric(self.peek().unwrap())
         {
             i.push(*self.next().unwrap());
         }
@@ -157,6 +160,10 @@ fn is_valid_identifier(c: &char) -> bool {
     c.is_alphabetic() || c.is_numeric() || *c == '_'
 }
 
+fn is_valid_numeric(c: &char) -> bool {
+    c.is_numeric() || *c == '.'
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -164,7 +171,7 @@ mod tests {
     use test_case::test_case;
 
     #[test_case(
-        "let x = 1 => |> foo_bar5 % while elif",
+        "let x = 1 => |> foo_bar5 % while elif 1.9",
         vec!(
             Token::new(Let, "let".into()),
             Token::new(Ident, "x".into()),
@@ -176,6 +183,7 @@ mod tests {
             Token::new(Modulo, "%".into()),
             Token::new(While, "while".into()),
             Token::new(Elif, "elif".into()),
+            Token::new(Float, "1.9".into()),
         ); "assignment"
     )]
     fn test_token(input: &str, exp: Vec<Token>) {

@@ -4,6 +4,7 @@ pub enum TokenKind {
     EOF,
     Ident,
     Int,
+    Float,
     Str,
 
     // Operators
@@ -23,6 +24,7 @@ pub enum TokenKind {
     GT,
 
     Comma,
+    Dot,
     Semicolon,
     LParen,
     RParen,

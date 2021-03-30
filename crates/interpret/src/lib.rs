@@ -104,6 +104,7 @@ fn eval_expr(expr: &ExprKind, env: EnvPointer) -> Rc<Object> {
     match expr {
         Boolean(b) => Rc::new(Object::Boolean(*b)),
         Int(i) => Rc::new(Object::Int(*i)),
+        Float(f) => Rc::new(Object::Float(*f)),
         Ident(i) => eval_ident(i, env),
         Str(s) => Rc::new(Object::Str(s.to_owned())),
         Infix(op, lhs, rhs) => {
@@ -120,12 +121,6 @@ fn eval_expr(expr: &ExprKind, env: EnvPointer) -> Rc<Object> {
                 if is_truthy(&val) { return eval_block(&b.conseq, Rc::clone(&scoped)); };
             }
             eval_block(alt, scoped)
-            // let val = eval_expr(cond, Rc::clone(&scoped_env));
-            // match *val {
-            //     Object::Error(_) => val,
-            //     _ if is_truthy(&val) => eval_block(conseq, scoped_env),
-            //     _ => eval_block(alt, scoped_env),
-            // }
         }
         Prefix(op, e) => {
             let obj = return_error!(eval_expr(e, Rc::clone(&env)));
@@ -254,6 +249,9 @@ fn eval_infix_expr(op: &TokenKind, lhs: &Object, rhs: &Object) -> Object {
         },
         (Str(s1), Str(s2), _) => eval_str_infix(op, &s1, &s2),
         (Int(i), Int(j), _) => eval_int_infix(op, *i, *j),
+        (Float(i), Float(j), _) => eval_float_infix(op, *i, *j),
+        (Float(i), Int(j), _) => eval_float_infix(op, *i, *j as f64),
+        (Int(i), Float(j), _) => eval_float_infix(op, *i as f64, *j),
         _ => Error(EvalError::UnknownInfixOp)
     }
 }
@@ -271,6 +269,23 @@ fn eval_int_infix(op: &TokenKind, i: i64, j: i64) -> Object {
         T::EQ => Boolean(i == j),
         T::NEQ => Boolean(i != j),
         T::Modulo => Int(i % j),
+        _ => Error(EvalError::UnknownInfixOp)
+    }
+}
+
+fn eval_float_infix(op: &TokenKind, i: f64, j: f64) -> Object {
+    use Object::*;
+    use TokenKind as T;
+    match op {
+        T::Plus => Float(i + j),
+        T::Minus => Float(i - j),
+        T::Asterisk => Float(i * j),
+        T::Slash => Float(i / j),
+        T::LT => Boolean(i < j),
+        T::GT => Boolean(i > j),
+        T::EQ => Boolean(i == j),
+        T::NEQ => Boolean(i != j),
+        T::Modulo => Float(i % j),
         _ => Error(EvalError::UnknownInfixOp)
     }
 }
