@@ -1,0 +1,18 @@
+let greeter_factory = fn(greeting) {
+	fn(name) {
+		greeting + " " + name + "!";
+	}
+}
+
+let default_greeting = fn(greeter) {
+	greeter("user");
+}
+
+let repeater = fn(s, i) {
+	s * i;
+}
+
+let g = greeter_factory("hello")
+	|> default_greeting()
+	|> repeater(5)
+	|> puts();

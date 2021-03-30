@@ -247,6 +247,8 @@ fn eval_infix_expr(op: &TokenKind, lhs: &Object, rhs: &Object) -> Object {
             let res = is_truthy(lhs) || is_truthy(rhs);
             Boolean(res)
         },
+        (Str(s), Int(i), TokenKind::Asterisk)
+            | (Int(i), Str(s), TokenKind::Asterisk) => Object::Str(s.repeat(*i as usize)),
         (Str(s1), Str(s2), _) => eval_str_infix(op, &s1, &s2),
         (Int(i), Int(j), _) => eval_int_infix(op, *i, *j),
         (Float(i), Float(j), _) => eval_float_infix(op, *i, *j),
