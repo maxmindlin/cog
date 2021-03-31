@@ -12,7 +12,7 @@ let repeater = fn(s, i) {
 	s * i;
 }
 
-let g = greeter_factory("hello")
+greeter_factory("hello")
 	|> default_greeting()
 	|> repeater(5)
 	|> puts();
